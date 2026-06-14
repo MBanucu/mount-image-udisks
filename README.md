@@ -10,6 +10,10 @@ Disk image mounting via udisksctl (Linux).
 [![CI](https://img.shields.io/github/actions/workflow/status/MBanucu/mount-image-udisks/test.yml?branch=main)](https://github.com/MBanucu/mount-image-udisks/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/MBanucu/mount-image-udisks/branch/main/graph/badge.svg)](https://codecov.io/gh/MBanucu/mount-image-udisks)
 
+[![Downloads total](https://pepy.tech/badge/mount-image-udisks)](https://pepy.tech/project/mount-image-udisks)
+[![Downloads/month](https://pepy.tech/badge/mount-image-udisks/month)](https://pepy.tech/project/mount-image-udisks)
+[![Downloads/week](https://pepy.tech/badge/mount-image-udisks/week)](https://pepy.tech/project/mount-image-udisks)
+
 ## Quick start
 
 ```python
