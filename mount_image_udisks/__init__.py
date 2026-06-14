@@ -97,3 +97,19 @@ def _parse_mount(stdout: str) -> str | None:
             if idx != -1:
                 return line[idx + 4:].rstrip('.')
     return None
+
+
+def umount_inner(device: str):
+    """Unmount without detach. Used by the orchestrator."""
+    r = subprocess.run(
+        ['udisksctl', 'unmount', '-b', device, '--no-user-interaction'],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"udisksctl unmount failed: {r.stderr.strip()}")
+
+
+def detach_inner(device: str):
+    """Detach without unmount. Used by the orchestrator."""
+    subprocess.run(
+        ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
+        capture_output=True)
