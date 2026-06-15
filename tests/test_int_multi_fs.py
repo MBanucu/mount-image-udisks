@@ -124,14 +124,36 @@ class TestUdisksMultiFs(unittest.TestCase):
                 umount_image(dev, mp)
 
     def test_write_to_mounted_image(self):
-        from mount_image_udisks import umount_image
+        from mount_image_udisks import mount_image, umount_image
         for fstype, path in self._images.items():
             with self.subTest(fstype=fstype):
                 dev, mp = self._mount(path, fstype=fstype)
                 if not os.access(mp, os.W_OK):
                     umount_image(dev, mp)
-                    raise unittest.SkipTest(
-                        f'{fstype} mount not user-writable')
+                    # try fixture as fallback
+                    _, _, fixture_name = _FSTYPES[fstype]
+                    fixture_path = _FIXTURE_DIR / fixture_name
+                    if fixture_path.exists():
+                        fd, fb_path = tempfile.mkstemp(
+                            suffix='.img', prefix='mount_image_fb_')
+                        os.close(fd)
+                        try:
+                            _decompress_image(
+                                fixture_path, fb_path,
+                                _FSTYPES[fstype][1])
+                            dev, mp = self._mount(fb_path, fstype=fstype)
+                            if not os.access(mp, os.W_OK):
+                                umount_image(dev, mp)
+                                raise unittest.SkipTest(
+                                    f'{fstype} mount not user-writable')
+                        finally:
+                            try:
+                                os.unlink(fb_path)
+                            except OSError:
+                                pass
+                    else:
+                        raise unittest.SkipTest(
+                            f'{fstype} mount not user-writable')
                 try:
                     test_file = os.path.join(mp, 'test_write.txt')
                     content = f'hello from {fstype}'
