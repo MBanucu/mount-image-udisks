@@ -69,7 +69,12 @@ def _create_image(fstype, path):
                       'root_perms=0755',
             ])
         cmd.append(path)
-        subprocess.run(cmd, check=True, capture_output=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            # fall back to plain mkfs if extended options are unsupported
+            subprocess.run(
+                [mkfs_bin, path], check=True, capture_output=True)
         return
 
     gz_path = _FIXTURE_DIR / fixture
@@ -126,6 +131,10 @@ class TestUdisksMultiFs(unittest.TestCase):
         for fstype, path in self._images.items():
             with self.subTest(fstype=fstype):
                 dev, mp = self._mount(path, fstype=fstype)
+                if not os.access(mp, os.W_OK):
+                    umount_image(dev, mp)
+                    raise unittest.SkipTest(
+                        f'{fstype} mount not user-writable')
                 try:
                     test_file = os.path.join(mp, 'test_write.txt')
                     content = f'hello from {fstype}'
