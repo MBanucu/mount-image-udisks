@@ -55,6 +55,7 @@ class TestUdisksMount(unittest.TestCase):
             MagicMock(returncode=0,
                       stdout='Mapped file img as /dev/loop0.\n'),
             MagicMock(returncode=0, stdout='no mount here\n', stderr=''),
+            MagicMock(returncode=0),
         ]
         from mount_image_udisks import mount_image
         with self.assertRaises(RuntimeError) as ctx:
