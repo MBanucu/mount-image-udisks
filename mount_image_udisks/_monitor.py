@@ -1,5 +1,6 @@
 """udisksctl monitor integration — parser, monitor thread, detach thread."""
 
+import os
 import re
 import subprocess
 import threading
@@ -103,6 +104,7 @@ class _UdisksMonitor(threading.Thread):
         self.mount_detected = threading.Event()
         self._stop = threading.Event()
         self._parser = _MonitorParser()
+        self.ready = threading.Event()
 
     def reset_events(self):
         self.backing_cleared.clear()
@@ -120,29 +122,49 @@ class _UdisksMonitor(threading.Thread):
                 text=True,
             )
         except Exception:
+            self.ready.set()
             return
+
+        # Wait for the first line to confirm D-Bus connection is up,
+        # then signal readiness and feed that line to the parser.
+        try:
+            first = proc.stdout.readline()
+        except Exception:
+            proc.terminate()
+            proc.wait()
+            self.ready.set()
+            return
+        self.ready.set()
+        event = self._parser.feed(first)
+        self._handle_event(event)
 
         try:
             for line in proc.stdout:
                 if self._stop.is_set():
                     break
                 event = self._parser.feed(line)
-                if event is None:
-                    continue
-                etype, data = event
-                if etype == 'job':
-                    if (data['op'] == 'filesystem-mount' and
-                            self._name in data['objects']):
-                        self.mount_detected.set()
-                elif etype == 'loop_prop':
-                    if (data['device'] == self._name and
-                            data['prop'] == 'BackingFile' and
-                            not data['value']):
-                        self.backing_cleared.set()
+                self._handle_event(event)
         finally:
             proc.stdout.close()
             proc.terminate()
             proc.wait()
+
+    def _handle_event(self, event):
+        if event is None:
+            return
+        etype, data = event
+        if etype == 'job':
+            if (data['op'] == 'filesystem-mount' and
+                    self._name in data['objects']):
+                self.mount_detected.set()
+        elif etype == 'loop_prop':
+            if (data['device'] == self._name and
+                    data['prop'] == 'BackingFile' and
+                    not data['value']):
+                self.backing_cleared.set()
+
+
+_pending_detaches: set['_DetachThread'] = set()
 
 
 class _DetachThread(threading.Thread):
@@ -151,6 +173,9 @@ class _DetachThread(threading.Thread):
     Issues ``loop-delete``, then waits for ``udisksctl monitor``
     feedback.  If the auto-mounter re-mounts, unmounts and retries.
     Exits once the device is confirmed fully detached.
+
+    Each instance is tracked in ``_pending_detaches`` so callers can
+    optionally wait for completion via :func:`join_pending_detaches`.
     """
 
     def __init__(self, device: str):
@@ -159,38 +184,67 @@ class _DetachThread(threading.Thread):
         self._name = device.split('/')[-1]
 
     def run(self):
+        _pending_detaches.add(self)
+        try:
+            self._run_detach()
+        finally:
+            _pending_detaches.discard(self)
+
+    def _run_detach(self):
         monitor = _UdisksMonitor(self._name)
         monitor.start()
+        if not monitor.ready.wait(timeout=10):
+            print(f"device {self._device}: monitor failed to start, "
+                  f"giving up")
+            return
         try:
             while True:
                 monitor.reset_events()
+                _unmount_normal(self._device, None)
+                time.sleep(0.15)
                 loop_delete(self._device)
                 print(f"device {self._device}: loop-delete issued, "
                       f"waiting for monitor...")
 
-                deadline = time.monotonic() + 30.0
+                deadline = time.monotonic() + 10.0
                 while time.monotonic() < deadline:
                     if monitor.mount_detected.is_set():
                         print(f"device {self._device}: auto-mounter "
-                              f"re-mounted, unmounting...")
-                        _unmount_normal(self._device, None)
+                              f"re-mounted, retrying...")
                         break
 
                     if monitor.backing_cleared.is_set():
                         time.sleep(0.3)
                         if monitor.mount_detected.is_set():
-                            _unmount_normal(self._device, None)
                             break
                         print(f"device {self._device} detached")
                         return
                     time.sleep(0.1)
                 else:
-                    print(f"device {self._device}: detach timed out, "
-                          f"giving up")
+                    _fallback_detach(self._name, self._device)
                     return
         finally:
             monitor.stop()
             monitor.join(timeout=3)
+
+
+def _fallback_detach(name: str, device: str):
+    """Fallback: aggressive unmount–delete–poll retry loop.
+
+    Used when the udisksctl monitor does not confirm detachment
+    before the timeout.
+    """
+    sys_path = f'/sys/block/{name}'
+    for _ in range(30):
+        _unmount_normal(device, None)
+        time.sleep(0.1)
+        loop_delete(device)
+        time.sleep(0.1)
+        if not os.path.exists(sys_path):
+            print(f"device {device} detached (fallback)")
+            return
+        time.sleep(0.3)
+    print(f"device {device}: fallback detach exhausted, giving up")
 
 
 def detach_loop(device: str):
@@ -200,6 +254,18 @@ def detach_loop(device: str):
     ``udisksctl monitor`` for the device to confirm full detachment.
     If the desktop auto-mounter (gvfs) re-attaches and re-mounts the
     device between delete attempts, the thread unmounts and retries.
+
+    Call :func:`join_pending_detaches` to block until all outstanding
+    detach threads have completed.
     """
     print("")
     _DetachThread(device).start()
+
+
+def join_pending_detaches(timeout: float | None = None):
+    """Block until all outstanding detach threads have completed."""
+    for t in list(_pending_detaches):
+        t.join(timeout=timeout)
+        if t.is_alive():
+            print(f"warning: detach thread for {t._device} "
+                  f"still alive after {timeout}s")
