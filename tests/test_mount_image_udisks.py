@@ -309,6 +309,23 @@ class TestUdisksMountDetachRetry(unittest.TestCase):
             ['udisksctl', 'loop-delete', '-b', '/dev/loop0',
              '--no-user-interaction'], capture_output=True)
 
+    @patch('mount_image_udisks.subprocess.run')
+    @patch('mount_image_udisks._loop_size')
+    def test_detach_unmounts_before_retry_when_delete_fails(
+            self, mock_size, mock_run):
+        from mount_image_udisks import umount_image
+        mock_size.side_effect = [2048, 2048, 0]
+        mock_run.return_value = MagicMock(returncode=0, stderr='')
+        umount_image('/dev/loop0')
+        # Strategy unmount + loop-delete + unmount fallback
+        self.assertEqual(mock_run.call_count, 3)
+        mock_run.assert_any_call(
+            ['udisksctl', 'loop-delete', '-b', '/dev/loop0',
+             '--no-user-interaction'], capture_output=True)
+        mock_run.assert_any_call(
+            ['udisksctl', 'unmount', '-b', '/dev/loop0',
+             '--no-user-interaction'], capture_output=True, text=True)
+
 
 class TestParsing(unittest.TestCase):
     def test_parse_dev(self):

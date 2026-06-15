@@ -206,7 +206,7 @@ def _mount(loop_dev: str, fstype: str | None, options: list[str] | None) -> str:
 
 
 def _loop_delete(loop_dev: str):
-    subprocess.run(
+    return subprocess.run(
         ['udisksctl', 'loop-delete', '-b', loop_dev, '--no-user-interaction'],
         capture_output=True)
 
@@ -219,16 +219,10 @@ def _detach_loop(device: str):
     retrying until the device is fully detached.
     """
     while _loop_size(device) != 0:
-        subprocess.run(
-            ['udisksctl', 'loop-delete', '-b', device,
-                '--no-user-interaction'],
-            capture_output=True)
+        _loop_delete(device)
         if _loop_size(device) == 0:
             return
-        subprocess.run(
-            ['udisksctl', 'unmount', '-b', device,
-                '--no-user-interaction'],
-            capture_output=True)
+        _unmount_normal(device, None)
 
 
 def _loop_size(device: str) -> int:
