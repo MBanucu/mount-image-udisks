@@ -1,20 +1,19 @@
 """Integration tests — mount images with multiple filesystem types."""
 
+import gzip
 import os
-import re
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
-_IMG_SIZE_MB = 1
+_FIXTURE_DIR = Path(__file__).parent
 
-_ALREADY_MOUNTED_RE = re.compile(
-    r"is already mounted at [`']([^`']+)")
-
+# (mkfs_binary, image_size_mb, gzip_fixture_name)
 _FSTYPES = {
-    'vfat':  'mkfs.fat',
-    'ext4':  'mkfs.ext4',
-    'exfat': 'mkfs.exfat',
+    'vfat':  ('mkfs.fat',   1, 'fat.img.gz'),
+    'ext4':  ('mkfs.ext4',  1, 'ext4.img.gz'),
+    'exfat': ('mkfs.exfat', 4, 'exfat.img.gz'),
 }
 
 
@@ -23,27 +22,65 @@ def _sudo_available():
         ['sudo', '-n', 'true'], capture_output=True).returncode == 0
 
 
+def _mkfs_available(mkfs_bin):
+    return subprocess.run(
+        ['which', mkfs_bin],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def _fixture_available(fixture_name):
+    return (_FIXTURE_DIR / fixture_name).exists()
+
+
 def _available_fstypes():
     available = []
-    for name, mkfs_bin in _FSTYPES.items():
-        if subprocess.run(
-            ['which', mkfs_bin],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        ).returncode == 0:
+    for name, (mkfs_bin, _size, fixture) in _FSTYPES.items():
+        if _mkfs_available(mkfs_bin) or _fixture_available(fixture):
             available.append(name)
     return available
 
 
+def _decompress_image(gz_path, dest_path, full_size_mb):
+    CHUNK = 1024 * 1024
+    zero = b'\x00' * CHUNK
+    full_size = full_size_mb * 1024 * 1024
+
+    fd = os.open(dest_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC)
+    os.ftruncate(fd, full_size)
+    os.close(fd)
+
+    offset = 0
+    with gzip.open(gz_path, 'rb') as src, open(dest_path, 'rb+') as dst:
+        while True:
+            chunk = src.read(CHUNK)
+            if not chunk:
+                break
+            if chunk != zero[:len(chunk)]:
+                os.lseek(dst.fileno(), offset, os.SEEK_SET)
+                dst.write(chunk)
+            offset += len(chunk)
+
+
 def _create_image(fstype, path):
-    mkfs_bin = _FSTYPES[fstype]
-    subprocess.run(
-        ['truncate', '-s', f'{_IMG_SIZE_MB}M', path], check=True)
-    cmd = [mkfs_bin, path]
-    if fstype == 'ext4':
-        cmd.extend([
-            '-E', f'root_owner={os.getuid()}:{os.getgid()},root_perms=0755',
-        ])
-    subprocess.run(cmd, check=True, capture_output=True)
+    mkfs_bin, size_mb, fixture = _FSTYPES[fstype]
+
+    if _mkfs_available(mkfs_bin):
+        subprocess.run(
+            ['truncate', '-s', f'{size_mb}M', path], check=True)
+        cmd = [mkfs_bin, path]
+        if fstype == 'ext4':
+            cmd.extend([
+                '-E', f'root_owner={os.getuid()}:{os.getgid()},'
+                      'root_perms=0755',
+            ])
+        subprocess.run(cmd, check=True, capture_output=True)
+        return
+
+    gz_path = _FIXTURE_DIR / fixture
+    if not gz_path.exists():
+        raise unittest.SkipTest(
+            f'{mkfs_bin} not available and {fixture} fixture not found')
+    _decompress_image(gz_path, path, size_mb)
 
 
 class TestUdisksMultiFs(unittest.TestCase):
@@ -80,21 +117,8 @@ class TestUdisksMultiFs(unittest.TestCase):
         try:
             return mount_image(image_path, fstype=fstype)
         except RuntimeError as e:
-            m = _ALREADY_MOUNTED_RE.search(str(e))
-            if not m:
-                raise unittest.SkipTest(
-                    f'udisksctl not functional: {e}') from e
-            # DE auto-mounted — unmount and retry
-            mp = m.group(1)
-            r = subprocess.run(
-                ['findmnt', '-n', '-o', 'SOURCE', mp],
-                capture_output=True, text=True)
-            if r.returncode == 0 and r.stdout.strip():
-                subprocess.run(
-                    ['udisksctl', 'unmount', '-b', r.stdout.strip(),
-                     '--no-user-interaction'],
-                    capture_output=True)
-            return mount_image(image_path, fstype=fstype)
+            raise unittest.SkipTest(
+                f'udisksctl not functional: {e}') from e
 
     def test_mount_and_umount(self):
         from mount_image_udisks import umount_image
