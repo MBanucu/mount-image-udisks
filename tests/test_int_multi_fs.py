@@ -64,10 +64,7 @@ def _create_image(fstype, path):
             ['truncate', '-s', f'{size_mb}M', path], check=True)
         cmd = [mkfs_bin]
         if fstype == 'ext4':
-            cmd.extend([
-                '-E', f'root_owner={os.getuid()}:{os.getgid()},'
-                      'root_perms=0755',
-            ])
+            cmd.extend(['-E', 'root_perms=0777'])
         cmd.append(path)
         try:
             subprocess.run(cmd, check=True, capture_output=True)
