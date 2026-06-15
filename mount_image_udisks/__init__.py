@@ -17,7 +17,7 @@ _DEV_RE = re.compile(r'as\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
 _MOUNT_RE = re.compile(r'at\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
 
 
-def mount_image(image_path: str, fstype: str = 'exfat',
+def mount_image(image_path: str, fstype: str | None = None,
                 options: list[str] | None = None) -> tuple[str, str]:
     """Attach *image_path* via udisksctl and mount it.
 
@@ -97,7 +97,7 @@ def _loop_setup(image_path: str, read_only: bool = False) -> str:
     return dev
 
 
-def _mount(loop_dev: str, fstype: str, options: list[str] | None) -> str:
+def _mount(loop_dev: str, fstype: str | None, options: list[str] | None) -> str:
     cmd = ['udisksctl', 'mount', '-b', loop_dev, '--no-user-interaction']
     if fstype:
         cmd.extend(['-t', fstype])

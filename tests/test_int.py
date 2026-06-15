@@ -105,6 +105,15 @@ class TestUdisksIntegration(unittest.TestCase):
         finally:
             umount_image(dev, mp)
 
+    def test_mount_auto_fstype(self):
+        from mount_image_udisks import mount_image, umount_image
+        try:
+            dev, mp = mount_image(self._img, fstype=None)
+        except RuntimeError as e:
+            raise unittest.SkipTest(f'udisksctl not functional: {e}')
+        self.assertIn('loop', dev)
+        umount_image(dev, mp)
+
     def test_attach_and_detach(self):
         from mount_image_udisks import attach_image, detach_image
         try:
