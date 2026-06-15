@@ -35,10 +35,11 @@ jobs:
               }
           });
           POLKIT
+
           sudo apt-get update -qq
-          sudo apt-get install -y exfat-fuse exfatprogs
-          ls -la /sbin/mount.exfat* /usr/sbin/mount.exfat* 2>/dev/null || true
-          sudo ln -sf mount.exfat-fuse /sbin/mount.exfat
+          sudo apt-get install -y exfatprogs
+
+          sudo modprobe exfat
 
       - name: Install coverage tool
         run: python -m pip install coverage
