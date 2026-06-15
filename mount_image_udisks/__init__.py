@@ -12,6 +12,9 @@ Key advantages over the sudo strategy:
 
 import re
 import subprocess
+import threading
+import time
+from typing import Callable
 
 _DEV_RE = re.compile(r'as\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
 _MOUNT_RE = re.compile(r'at\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
@@ -47,17 +50,97 @@ def mount_image(image_path: str, fstype: str | None = None,
     return loop_dev, mount_point
 
 
-def umount_image(device: str, mount_point: str | None = None):
-    """Unmount and detach a disk image."""
+# ── unmount strategy API ─────────────────────────────────────────────
+
+StepFn = Callable[[str, str | None], tuple[bool, str]]
+
+
+def _unmount_normal(device: str, _mount_point: str | None) -> tuple[bool, str]:
     r = subprocess.run(
         ['udisksctl', 'unmount', '-b', device, '--no-user-interaction'],
         capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"udisksctl unmount failed: {r.stderr.strip()}")
+    return r.returncode == 0, r.stderr
 
-    subprocess.run(
-        ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
-        capture_output=True)
+
+def _unmount_force(device: str, _mount_point: str | None) -> tuple[bool, str]:
+    r = subprocess.run(
+        ['udisksctl', 'unmount', '-b', device,
+         '--force', '--no-user-interaction'],
+        capture_output=True, text=True)
+    return r.returncode == 0, r.stderr
+
+
+def _unmount_lazy(_device: str, mount_point: str | None) -> tuple[bool, str]:
+    if mount_point:
+        subprocess.run(['umount', '-l', mount_point], capture_output=True)
+        return True, ''
+    return False, 'no mount point for lazy unmount'
+
+
+def compose(*steps: StepFn) -> StepFn:
+    """Chain unmount strategies: each runs only if the previous failed."""
+    def _run(device: str, mount_point: str | None = None) -> tuple[bool, str]:
+        last_err = ''
+        for step in steps:
+            ok, err = step(device, mount_point)
+            if ok:
+                return True, ''
+            last_err = err
+        return False, last_err
+    return _run
+
+
+def retry(step: StepFn, attempts: int = 3, delay: float = 0.5) -> StepFn:
+    """Retry a strategy *attempts* times with *delay* seconds between."""
+    def _run(device: str, mount_point: str | None = None) -> tuple[bool, str]:
+        last_err = ''
+        for _ in range(attempts):
+            ok, err = step(device, mount_point)
+            if ok:
+                return True, ''
+            last_err = err
+            time.sleep(delay)
+        return False, last_err
+    return _run
+
+
+# Pre-built strategies
+UNMOUNT_FAIL_FAST:          StepFn = compose(_unmount_normal)
+UNMOUNT_RETRY:              StepFn = compose(retry(_unmount_normal))
+UNMOUNT_FORCE:              StepFn = compose(_unmount_normal, _unmount_force)
+UNMOUNT_LAZY:               StepFn = compose(_unmount_normal, _unmount_lazy)
+UNMOUNT_FORCE_THEN_LAZY:    StepFn = compose(_unmount_normal, _unmount_force,
+                                              _unmount_lazy)
+UNMOUNT_RETRY_THEN_LAZY:    StepFn = compose(retry(_unmount_normal),
+                                              _unmount_lazy)
+
+
+def umount_image(device: str, mount_point: str | None = None,
+                 strategy: StepFn = UNMOUNT_RETRY_THEN_LAZY):
+    """Unmount and detach a disk image.
+
+    *strategy* is a callable ``(device, mount_point) -> (ok, err)``.
+    Use :func:`compose` and :func:`retry` to build custom strategies,
+    or pick from the pre-built ones:
+
+    - ``UNMOUNT_FAIL_FAST`` — normal unmount, raise on failure
+    - ``UNMOUNT_RETRY`` — normal unmount, retry 3× with 0.5 s delay
+    - ``UNMOUNT_FORCE`` — normal, then ``--force``
+    - ``UNMOUNT_LAZY`` — normal, then ``umount -l`` (needs *mount_point*)
+    - ``UNMOUNT_FORCE_THEN_LAZY`` — normal → force → lazy
+    - ``UNMOUNT_RETRY_THEN_LAZY`` (**default**) — retry normal 3× → lazy
+
+    A custom strategy::
+
+        strategy = compose(retry(_unmount_normal, attempts=5),
+                           _unmount_force,
+                           _unmount_lazy)
+    """
+    ok, err = strategy(device, mount_point)
+    if not ok:
+        raise RuntimeError(f"udisksctl unmount failed: {err.strip()}")
+
+    _detach_loop(device)
 
 
 def attach_image(image_path: str) -> str:
@@ -71,9 +154,7 @@ def attach_image(image_path: str) -> str:
 
 def detach_image(device: str):
     """Detach a block device."""
-    subprocess.run(
-        ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
-        capture_output=True)
+    _detach_loop(device)
 
 
 def umount_inner(device: str):
@@ -87,9 +168,7 @@ def umount_inner(device: str):
 
 def detach_inner(device: str):
     """Detach without unmount. Used by the mount-image orchestrator."""
-    subprocess.run(
-        ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
-        capture_output=True)
+    _detach_loop(device)
 
 
 # ── internal helpers ────────────────────────────────────────────────
@@ -131,6 +210,47 @@ def _loop_delete(loop_dev: str):
     subprocess.run(
         ['udisksctl', 'loop-delete', '-b', loop_dev, '--no-user-interaction'],
         capture_output=True)
+
+
+def _detach_loop(device: str):
+    """Detach a loop device, retrying in the background if blocked.
+
+    Tries one inline delete first.  If the backing file is still
+    attached (e.g. a DE auto-mounter re-mounted), spawns a daemon
+    thread that retries indefinitely with normal unmount between
+    attempts.
+    """
+    subprocess.run(
+        ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
+        capture_output=True)
+    if _loop_size(device) == 0:
+        return
+
+    def _retry():
+        while _loop_size(device) != 0:
+            subprocess.run(
+                ['udisksctl', 'loop-delete', '-b', device,
+                 '--no-user-interaction'],
+                capture_output=True)
+            if _loop_size(device) == 0:
+                return
+            subprocess.run(
+                ['udisksctl', 'unmount', '-b', device,
+                 '--no-user-interaction'],
+                capture_output=True)
+            time.sleep(0.1)
+
+    threading.Thread(target=_retry, daemon=True).start()
+
+
+def _loop_size(device: str) -> int:
+    """Return the backing-file size of a loop device, or 0 if detached."""
+    name = device.split('/')[-1]
+    try:
+        with open(f'/sys/block/{name}/size') as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return 0
 
 
 def _parse_dev(stdout: str) -> str | None:

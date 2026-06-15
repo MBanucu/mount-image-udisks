@@ -182,7 +182,7 @@ class TestUdisksMultiFs(unittest.TestCase):
                 umount_image(dev, mp)
 
     def test_attach_and_detach(self):
-        from mount_image_udisks import attach_image, detach_image
+        from mount_image_udisks import attach_image, detach_image, umount_image
         for fstype, path in self._images.items():
             with self.subTest(fstype=fstype):
                 try:
@@ -193,8 +193,10 @@ class TestUdisksMultiFs(unittest.TestCase):
                     ) from e
                 self.assertIn('loop', dev)
                 self.assertTrue(os.path.exists(dev))
-                subprocess.run(
-                    ['udisksctl', 'unmount', '-b', dev,
-                     '--no-user-interaction'],
-                    capture_output=True)
-                detach_image(dev)
+                mp = subprocess.run(
+                    ['findmnt', '-n', '-o', 'TARGET', dev],
+                    capture_output=True, text=True).stdout.strip()
+                if mp:
+                    umount_image(dev, mp)
+                else:
+                    detach_image(dev)
