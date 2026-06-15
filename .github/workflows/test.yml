@@ -37,7 +37,7 @@ jobs:
           POLKIT
 
           sudo apt-get update -qq
-          sudo apt-get install -y exfat-fuse exfat-utils
+          sudo apt-get install -y exfat-fuse exfatprogs
 
           sudo ln -s /sbin/mount.exfat-fuse /usr/local/bin/mount.exfat
 
