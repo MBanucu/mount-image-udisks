@@ -17,11 +17,6 @@ _FSTYPES = {
 }
 
 
-def _sudo_available():
-    return subprocess.run(
-        ['sudo', '-n', 'true'], capture_output=True).returncode == 0
-
-
 def _mkfs_available(mkfs_bin):
     return subprocess.run(
         ['which', mkfs_bin],
@@ -88,9 +83,6 @@ class TestUdisksMultiFs(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not _sudo_available():
-            raise unittest.SkipTest('sudo passwordless access required')
-
         cls._images = {}
         for fstype in _available_fstypes():
             fd, path = tempfile.mkstemp(

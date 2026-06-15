@@ -10,10 +10,6 @@ from pathlib import Path
 _FAT_IMG_SIZE_MB = 1
 
 
-def _sudo_available():
-    return subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
-
-
 def _mkfs_available():
     return subprocess.run(
         ['which', 'mkfs.fat'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
@@ -67,8 +63,6 @@ class TestUdisksIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not _sudo_available():
-            raise unittest.SkipTest('sudo passwordless access required')
         cls._img = _prepare_image()
 
     @classmethod
