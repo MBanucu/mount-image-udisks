@@ -26,24 +26,17 @@ def mount_image(image_path: str, fstype: str | None = None,
     """
     loop_dev = _loop_setup(image_path)
 
-    # Check if the filesystem is already mounted (e.g. DE auto-mount)
-    r = subprocess.run(
-        ['blkid', '-s', 'UUID', '-o', 'value', loop_dev],
-        capture_output=True, text=True)
-    uuid = r.stdout.strip()
-    if uuid:
-        r = subprocess.run(
-            ['findmnt', '-n', '-o', 'TARGET,SOURCE',
-             '--source', f'UUID={uuid}'],
-            capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.strip():
-            target, source = r.stdout.strip().split(None, 1)
-            _loop_delete(loop_dev)
-            return source, target
-
     try:
         mount_point = _mount(loop_dev, fstype, options)
-    except Exception:
+    except RuntimeError as e:
+        if 'AlreadyMounted' in str(e):
+            r = subprocess.run(
+                ['findmnt', '-n', '-o', 'TARGET,SOURCE', '--source', loop_dev],
+                capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                target, source = r.stdout.strip().split(None, 1)
+                _loop_delete(loop_dev)
+                return source, target
         _loop_delete(loop_dev)
         raise
     return loop_dev, mount_point
