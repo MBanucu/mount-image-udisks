@@ -30,6 +30,8 @@ umount_image(device, mount_point)
 - `umount_image(device, mount_point=None)`
 - `attach_image(path)` → `device`
 - `detach_image(device)`
+- `umount_inner(device)` — unmount only, used by the [mount-image](https://github.com/MBanucu/mount-image) orchestrator
+- `detach_inner(device)` — detach only, used by the [mount-image](https://github.com/MBanucu/mount-image) orchestrator
 
 ## License
 
