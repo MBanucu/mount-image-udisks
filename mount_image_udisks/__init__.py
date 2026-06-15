@@ -94,11 +94,9 @@ def detach_inner(device: str):
 
 # ── internal helpers ────────────────────────────────────────────────
 
-def _loop_setup(image_path: str, read_only: bool = False) -> str:
+def _loop_setup(image_path: str) -> str:
     cmd = ['udisksctl', 'loop-setup', '-f', str(image_path),
            '--no-user-interaction']
-    if read_only:
-        cmd.append('--read-only')
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -139,11 +137,6 @@ def _parse_dev(stdout: str) -> str | None:
     m = _DEV_RE.search(stdout)
     if m:
         return m.group(1)
-    for line in stdout.splitlines():
-        if ' as ' in line:
-            parts = line.strip().split()
-            if parts and parts[-1].rstrip('.').startswith('/dev/'):
-                return parts[-1].rstrip('.')
     return None
 
 

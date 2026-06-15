@@ -107,10 +107,10 @@ class TestUdisksMultiFs(unittest.TestCase):
                 pass
 
     @staticmethod
-    def _mount(image_path, fstype=None):
+    def _mount(image_path, fstype=None, options=None):
         from mount_image_udisks import mount_image
         try:
-            return mount_image(image_path, fstype=fstype)
+            return mount_image(image_path, fstype=fstype, options=options)
         except RuntimeError as e:
             raise unittest.SkipTest(
                 f'udisksctl not functional: {e}') from e
@@ -170,6 +170,14 @@ class TestUdisksMultiFs(unittest.TestCase):
         for fstype, path in self._images.items():
             with self.subTest(fstype=fstype):
                 dev, mp = self._mount(path, fstype=None)
+                self.assertIn('loop', dev)
+                umount_image(dev, mp)
+
+    def test_mount_with_options(self):
+        from mount_image_udisks import umount_image
+        for fstype, path in self._images.items():
+            with self.subTest(fstype=fstype):
+                dev, mp = self._mount(path, fstype=fstype, options=['ro'])
                 self.assertIn('loop', dev)
                 umount_image(dev, mp)
 
