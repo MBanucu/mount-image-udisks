@@ -17,6 +17,9 @@ python -m unittest discover -s tests -v
 pip install coverage
 python -m coverage run -m unittest discover -s tests -v
 python -m coverage report --fail-under=70 --skip-covered
+
+# or via Nix dev shell:
+nix develop -c python -m unittest discover -s tests -v
 ```
 
 ## Module structure
