@@ -1,9 +1,0 @@
-LICENSE
-README.md
-pyproject.toml
-mount_image_udisks/__init__.py
-mount_image_udisks.egg-info/PKG-INFO
-mount_image_udisks.egg-info/SOURCES.txt
-mount_image_udisks.egg-info/dependency_links.txt
-mount_image_udisks.egg-info/top_level.txt
-tests/test_mount_image_udisks.py

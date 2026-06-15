@@ -10,10 +10,6 @@ from pathlib import Path
 _FAT_IMG_SIZE_MB = 1
 
 
-def _sudo_available():
-    return subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
-
-
 def _mkfs_available():
     return subprocess.run(
         ['which', 'mkfs.fat'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
@@ -67,8 +63,6 @@ class TestUdisksIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not _sudo_available():
-            raise unittest.SkipTest('sudo passwordless access required')
         cls._img = _prepare_image()
 
     @classmethod
@@ -82,6 +76,33 @@ class TestUdisksIntegration(unittest.TestCase):
         from mount_image_udisks import mount_image, umount_image
         try:
             dev, mp = mount_image(self._img, fstype='vfat')
+        except RuntimeError as e:
+            raise unittest.SkipTest(f'udisksctl not functional: {e}')
+        self.assertIn('loop', dev)
+        umount_image(dev, mp)
+
+    def test_write_to_mounted_image(self):
+        from mount_image_udisks import mount_image, umount_image
+        try:
+            dev, mp = mount_image(self._img, fstype='vfat')
+        except RuntimeError as e:
+            raise unittest.SkipTest(f'udisksctl not functional: {e}')
+
+        try:
+            test_file = os.path.join(mp, 'test_write.txt')
+            content = 'hello from test'
+            with open(test_file, 'w') as f:
+                f.write(content)
+            with open(test_file) as f:
+                self.assertEqual(f.read(), content)
+            os.unlink(test_file)
+        finally:
+            umount_image(dev, mp)
+
+    def test_mount_auto_fstype(self):
+        from mount_image_udisks import mount_image, umount_image
+        try:
+            dev, mp = mount_image(self._img, fstype=None)
         except RuntimeError as e:
             raise unittest.SkipTest(f'udisksctl not functional: {e}')
         self.assertIn('loop', dev)

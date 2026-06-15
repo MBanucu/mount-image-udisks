@@ -15,9 +15,11 @@ import subprocess
 
 _DEV_RE = re.compile(r'as\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
 _MOUNT_RE = re.compile(r'at\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
+_ALREADY_MOUNTED_RE = re.compile(
+    r"is already mounted at [`']([^`']+)")
 
 
-def mount_image(image_path: str, fstype: str = 'exfat',
+def mount_image(image_path: str, fstype: str | None = None,
                 options: list[str] | None = None) -> tuple[str, str]:
     """Attach *image_path* via udisksctl and mount it.
 
@@ -27,7 +29,19 @@ def mount_image(image_path: str, fstype: str = 'exfat',
     loop_dev = _loop_setup(image_path)
     try:
         mount_point = _mount(loop_dev, fstype, options)
-    except Exception:
+    except RuntimeError as e:
+        already = _parse_already_mounted(str(e))
+        if already:
+            _loop_delete(loop_dev)
+            # DE auto-mounted a previous loop device — find it
+            r = subprocess.run(
+                ['findmnt', '-n', '-o', 'SOURCE', already],
+                capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip(), already
+            raise RuntimeError(
+                f'device already mounted at {already} but could not '
+                f'find backing device') from e
         _loop_delete(loop_dev)
         raise
     return loop_dev, mount_point
@@ -97,7 +111,7 @@ def _loop_setup(image_path: str, read_only: bool = False) -> str:
     return dev
 
 
-def _mount(loop_dev: str, fstype: str, options: list[str] | None) -> str:
+def _mount(loop_dev: str, fstype: str | None, options: list[str] | None) -> str:
     cmd = ['udisksctl', 'mount', '-b', loop_dev, '--no-user-interaction']
     if fstype:
         cmd.extend(['-t', fstype])
@@ -142,4 +156,11 @@ def _parse_mount(stdout: str) -> str | None:
             idx = line.find(' at ')
             if idx != -1:
                 return line[idx + 4:].rstrip('.')
+    return None
+
+
+def _parse_already_mounted(error_msg: str) -> str | None:
+    m = _ALREADY_MOUNTED_RE.search(error_msg)
+    if m:
+        return m.group(1)
     return None
