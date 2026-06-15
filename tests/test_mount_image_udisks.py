@@ -123,6 +123,32 @@ class TestUdisksMount(unittest.TestCase):
             ['udisksctl', 'loop-delete', '-b', '/dev/loop0',
              '--no-user-interaction'], capture_output=True)
 
+    @patch('mount_image_udisks.subprocess.run')
+    def test_detach_inner(self, mock_run):
+        from mount_image_udisks import detach_inner
+        detach_inner('/dev/loop0')
+        mock_run.assert_called_once_with(
+            ['udisksctl', 'loop-delete', '-b', '/dev/loop0',
+             '--no-user-interaction'], capture_output=True)
+
+    @patch('mount_image_udisks.subprocess.run')
+    def test_umount_inner_success(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stderr='')
+        from mount_image_udisks import umount_inner
+        umount_inner('/dev/loop0')
+        mock_run.assert_called_once_with(
+            ['udisksctl', 'unmount', '-b', '/dev/loop0',
+             '--no-user-interaction'], capture_output=True, text=True)
+
+    @patch('mount_image_udisks.subprocess.run')
+    def test_umount_inner_fails(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=1, stderr='unmount error')
+        from mount_image_udisks import umount_inner
+        with self.assertRaises(RuntimeError) as ctx:
+            umount_inner('/dev/loop0')
+        self.assertIn('unmount failed', str(ctx.exception))
+
 
 class TestParsing(unittest.TestCase):
     def test_parse_dev(self):
