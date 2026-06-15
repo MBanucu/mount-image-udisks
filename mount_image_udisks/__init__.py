@@ -26,24 +26,22 @@ def mount_image(image_path: str, fstype: str | None = None,
     """
     loop_dev = _loop_setup(image_path)
 
-    # Check if the filesystem is already mounted (e.g. DE auto-mount)
-    r = subprocess.run(
-        ['blkid', '-s', 'UUID', '-o', 'value', loop_dev],
-        capture_output=True, text=True)
-    uuid = r.stdout.strip()
-    if uuid:
-        r = subprocess.run(
-            ['findmnt', '-n', '-o', 'TARGET,SOURCE',
-             '--source', f'UUID={uuid}'],
-            capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.strip():
-            target, source = r.stdout.strip().split(None, 1)
-            _loop_delete(loop_dev)
-            return source, target
-
+    # Try to mount ourselves.  If a DE auto-mounter (udisks2, gvfs, etc.)
+    # already mounted the device, udisksctl mount fails with AlreadyMounted.
+    # We handle this by error instead of probing upfront (blkid + findmnt)
+    # because the probing approach has a race: the auto-mounter can finish
+    # between our check and our mount call, producing the same error anyway.
     try:
         mount_point = _mount(loop_dev, fstype, options)
-    except Exception:
+    except RuntimeError as e:
+        if 'AlreadyMounted' in str(e):
+            r = subprocess.run(
+                ['findmnt', '-n', '-o', 'TARGET,SOURCE', '--source', loop_dev],
+                capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                target, source = r.stdout.strip().split(None, 1)
+                _loop_delete(loop_dev)
+                return source, target
         _loop_delete(loop_dev)
         raise
     return loop_dev, mount_point
@@ -79,7 +77,7 @@ def detach_image(device: str):
 
 
 def umount_inner(device: str):
-    """Unmount without detach. Used by the orchestrator."""
+    """Unmount without detach. Used by the mount-image orchestrator."""
     r = subprocess.run(
         ['udisksctl', 'unmount', '-b', device, '--no-user-interaction'],
         capture_output=True, text=True)
@@ -88,7 +86,7 @@ def umount_inner(device: str):
 
 
 def detach_inner(device: str):
-    """Detach without unmount. Used by the orchestrator."""
+    """Detach without unmount. Used by the mount-image orchestrator."""
     subprocess.run(
         ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
         capture_output=True)
