@@ -333,3 +333,7 @@ class TestParsing(unittest.TestCase):
         from mount_image_udisks import _parse_mount
         self.assertIsNone(_parse_mount('garbage\n'))
         self.assertIsNone(_parse_mount(''))
+
+    def test_loop_size_nonexistent_device(self):
+        from mount_image_udisks import _loop_size
+        self.assertEqual(_loop_size('/dev/loop999'), 0)
