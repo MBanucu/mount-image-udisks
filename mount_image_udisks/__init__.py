@@ -15,8 +15,6 @@ import subprocess
 
 _DEV_RE = re.compile(r'as\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
 _MOUNT_RE = re.compile(r'at\s+(/[^\s]+?)\.?\s*$', re.MULTILINE)
-_ALREADY_MOUNTED_RE = re.compile(
-    r"is already mounted at [`']([^`']+)")
 
 
 def mount_image(image_path: str, fstype: str | None = None,
@@ -27,21 +25,25 @@ def mount_image(image_path: str, fstype: str | None = None,
     Raises ``RuntimeError`` on failure.
     """
     loop_dev = _loop_setup(image_path)
+
+    # Check if the filesystem is already mounted (e.g. DE auto-mount)
+    r = subprocess.run(
+        ['blkid', '-s', 'UUID', '-o', 'value', loop_dev],
+        capture_output=True, text=True)
+    uuid = r.stdout.strip()
+    if uuid:
+        r = subprocess.run(
+            ['findmnt', '-n', '-o', 'TARGET,SOURCE',
+             '--source', f'UUID={uuid}'],
+            capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            target, source = r.stdout.strip().split(None, 1)
+            _loop_delete(loop_dev)
+            return source, target
+
     try:
         mount_point = _mount(loop_dev, fstype, options)
-    except RuntimeError as e:
-        already = _parse_already_mounted(str(e))
-        if already:
-            _loop_delete(loop_dev)
-            # DE auto-mounted a previous loop device — find it
-            r = subprocess.run(
-                ['findmnt', '-n', '-o', 'SOURCE', already],
-                capture_output=True, text=True)
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip(), already
-            raise RuntimeError(
-                f'device already mounted at {already} but could not '
-                f'find backing device') from e
+    except Exception:
         _loop_delete(loop_dev)
         raise
     return loop_dev, mount_point
@@ -156,11 +158,4 @@ def _parse_mount(stdout: str) -> str | None:
             idx = line.find(' at ')
             if idx != -1:
                 return line[idx + 4:].rstrip('.')
-    return None
-
-
-def _parse_already_mounted(error_msg: str) -> str | None:
-    m = _ALREADY_MOUNTED_RE.search(error_msg)
-    if m:
-        return m.group(1)
     return None
