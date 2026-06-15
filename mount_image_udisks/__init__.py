@@ -12,7 +12,6 @@ Key advantages over the sudo strategy:
 
 import re
 import subprocess
-import threading
 import time
 from typing import Callable
 
@@ -213,34 +212,23 @@ def _loop_delete(loop_dev: str):
 
 
 def _detach_loop(device: str):
-    """Detach a loop device, retrying in the background if blocked.
+    """Detach a loop device, retrying synchronously if blocked.
 
-    Tries one inline delete first.  If the backing file is still
-    attached (e.g. a DE auto-mounter re-mounted), spawns a daemon
-    thread that retries indefinitely with normal unmount between
-    attempts.
+    Attempts loop-delete and falls back to unmount when the backing
+    file is still attached (e.g. a DE auto-mounter re-mounted),
+    retrying until the device is fully detached.
     """
-    subprocess.run(
-        ['udisksctl', 'loop-delete', '-b', device, '--no-user-interaction'],
-        capture_output=True)
-    if _loop_size(device) == 0:
-        return
-
-    def _retry():
-        while _loop_size(device) != 0:
-            subprocess.run(
-                ['udisksctl', 'loop-delete', '-b', device,
-                 '--no-user-interaction'],
-                capture_output=True)
-            if _loop_size(device) == 0:
-                return
-            subprocess.run(
-                ['udisksctl', 'unmount', '-b', device,
-                 '--no-user-interaction'],
-                capture_output=True)
-            time.sleep(0.1)
-
-    threading.Thread(target=_retry, daemon=True).start()
+    while _loop_size(device) != 0:
+        subprocess.run(
+            ['udisksctl', 'loop-delete', '-b', device,
+                '--no-user-interaction'],
+            capture_output=True)
+        if _loop_size(device) == 0:
+            return
+        subprocess.run(
+            ['udisksctl', 'unmount', '-b', device,
+                '--no-user-interaction'],
+            capture_output=True)
 
 
 def _loop_size(device: str) -> int:
