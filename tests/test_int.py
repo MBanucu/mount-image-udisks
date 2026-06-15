@@ -119,10 +119,18 @@ class TestUdisksIntegration(unittest.TestCase):
 
     def test_attach_and_detach(self):
         from mount_image_udisks import attach_image, detach_image
+        import subprocess as sp
         try:
             dev = attach_image(self._img)
         except RuntimeError as e:
             raise unittest.SkipTest(f'udisksctl not functional: {e}')
         self.assertIn('loop', dev)
         self.assertTrue(os.path.exists(dev))
-        detach_image(dev)
+        mp = sp.run(
+            ['findmnt', '-n', '-o', 'TARGET', dev],
+            capture_output=True, text=True).stdout.strip()
+        if mp:
+            from mount_image_udisks import umount_image
+            umount_image(dev, mp)
+        else:
+            detach_image(dev)
