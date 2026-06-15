@@ -5,16 +5,6 @@ from unittest.mock import patch, MagicMock
 
 
 class TestUdisksMount(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls._loop_size_patcher = patch(
-            'mount_image_udisks._loop_size', return_value=0)
-        cls._loop_size_patcher.start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls._loop_size_patcher.stop()
-
     @patch('mount_image_udisks.subprocess.run')
     def test_mount_image_success(self, mock_run):
         mock_run.side_effect = [
@@ -104,7 +94,8 @@ class TestUdisksMount(unittest.TestCase):
         self.assertEqual(mp, '/run/media/user/IMG')
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image(self, mock_loop_size, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stderr='')
         from mount_image_udisks import umount_image
         umount_image('/dev/loop0')
@@ -114,7 +105,8 @@ class TestUdisksMount(unittest.TestCase):
              '--no-user-interaction'], capture_output=True, text=True)
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image_force_fallback(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image_force_fallback(self, mock_loop_size, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr='error'),
             MagicMock(returncode=0, stderr=''),
@@ -128,7 +120,8 @@ class TestUdisksMount(unittest.TestCase):
             capture_output=True, text=True)
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image_lazy_fallback(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image_lazy_fallback(self, mock_loop_size, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr='error'),
             MagicMock(returncode=0),
@@ -162,7 +155,8 @@ class TestUdisksMount(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 1)
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image_custom_strategy(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image_custom_strategy(self, mock_loop_size, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=0, stderr=''),
             MagicMock(returncode=0),
@@ -174,7 +168,9 @@ class TestUdisksMount(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 2)
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image_retry_success_after_fail(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image_retry_success_after_fail(self, mock_loop_size,
+                                                    mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr='error'),
             MagicMock(returncode=0, stderr=''),
@@ -198,7 +194,8 @@ class TestUdisksMount(unittest.TestCase):
         self.assertIn('unmount failed', str(ctx.exception))
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image_strategy_force(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image_strategy_force(self, mock_loop_size, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr='error'),
             MagicMock(returncode=0, stderr=''),
@@ -208,7 +205,9 @@ class TestUdisksMount(unittest.TestCase):
         umount_image('/dev/loop0', strategy=UNMOUNT_FORCE)
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_umount_image_default_retries_then_lazy(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_umount_image_default_retries_then_lazy(self, mock_loop_size,
+                                                     mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr='error'),
             MagicMock(returncode=1, stderr='error'),
@@ -248,7 +247,8 @@ class TestUdisksMount(unittest.TestCase):
             attach_image('/tmp/test.img')
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_detach_image(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_detach_image(self, mock_loop_size, mock_run):
         from mount_image_udisks import detach_image
         detach_image('/dev/loop0')
         mock_run.assert_called_once_with(
@@ -256,7 +256,8 @@ class TestUdisksMount(unittest.TestCase):
              '--no-user-interaction'], capture_output=True)
 
     @patch('mount_image_udisks.subprocess.run')
-    def test_detach_inner(self, mock_run):
+    @patch('mount_image_udisks._loop_size', side_effect=[2048, 0])
+    def test_detach_inner(self, mock_loop_size, mock_run):
         from mount_image_udisks import detach_inner
         detach_inner('/dev/loop0')
         mock_run.assert_called_once_with(
@@ -284,27 +285,29 @@ class TestUdisksMount(unittest.TestCase):
 
 class TestUdisksMountDetachRetry(unittest.TestCase):
     @patch('mount_image_udisks.subprocess.run')
-    @patch('mount_image_udisks.threading.Thread')
     @patch('mount_image_udisks._loop_size')
-    def test_detach_returns_immediately_when_already_detached(
-            self, mock_size, mock_thread, mock_run):
+    def test_detach_skipped_when_already_detached(
+            self, mock_size, mock_run):
         from mount_image_udisks import umount_image
         mock_size.return_value = 0
         mock_run.return_value = MagicMock(returncode=0, stderr='')
         umount_image('/dev/loop0')
-        mock_thread.assert_not_called()
+        # Only the unmount subprocess.run call; no loop-delete
+        self.assertEqual(mock_run.call_count, 1)
 
     @patch('mount_image_udisks.subprocess.run')
-    @patch('mount_image_udisks.threading.Thread')
     @patch('mount_image_udisks._loop_size')
-    def test_detach_spawns_thread_when_still_attached(
-            self, mock_size, mock_thread, mock_run):
+    def test_detach_retries_when_still_attached(
+            self, mock_size, mock_run):
         from mount_image_udisks import umount_image
-        mock_size.side_effect = [2048, 0]  # inline check: still attached, then done
+        mock_size.side_effect = [2048, 0]
         mock_run.return_value = MagicMock(returncode=0, stderr='')
         umount_image('/dev/loop0')
-        mock_thread.assert_called_once()
-        self.assertTrue(mock_thread.call_args[1]['daemon'])
+        # Unmount + loop-delete
+        self.assertEqual(mock_run.call_count, 2)
+        mock_run.assert_any_call(
+            ['udisksctl', 'loop-delete', '-b', '/dev/loop0',
+             '--no-user-interaction'], capture_output=True)
 
 
 class TestParsing(unittest.TestCase):
@@ -330,3 +333,7 @@ class TestParsing(unittest.TestCase):
         from mount_image_udisks import _parse_mount
         self.assertIsNone(_parse_mount('garbage\n'))
         self.assertIsNone(_parse_mount(''))
+
+    def test_loop_size_nonexistent_device(self):
+        from mount_image_udisks import _loop_size
+        self.assertEqual(_loop_size('/dev/loop999'), 0)
