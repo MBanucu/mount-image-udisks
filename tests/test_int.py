@@ -87,6 +87,24 @@ class TestUdisksIntegration(unittest.TestCase):
         self.assertIn('loop', dev)
         umount_image(dev, mp)
 
+    def test_write_to_mounted_image(self):
+        from mount_image_udisks import mount_image, umount_image
+        try:
+            dev, mp = mount_image(self._img, fstype='vfat')
+        except RuntimeError as e:
+            raise unittest.SkipTest(f'udisksctl not functional: {e}')
+
+        try:
+            test_file = os.path.join(mp, 'test_write.txt')
+            content = 'hello from test'
+            with open(test_file, 'w') as f:
+                f.write(content)
+            with open(test_file) as f:
+                self.assertEqual(f.read(), content)
+            os.unlink(test_file)
+        finally:
+            umount_image(dev, mp)
+
     def test_attach_and_detach(self):
         from mount_image_udisks import attach_image, detach_image
         try:
