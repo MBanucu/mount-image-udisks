@@ -8,8 +8,12 @@ class TestUdisksMount(unittest.TestCase):
     @patch('mount_image_udisks.subprocess.run')
     def test_mount_image_success(self, mock_run):
         mock_run.side_effect = [
+            # loop_setup
             MagicMock(returncode=0,
                       stdout='Mapped file img as /dev/loop0.\n'),
+            # blkid UUID lookup — empty, no auto-mount
+            MagicMock(returncode=0, stdout=''),
+            # _mount
             MagicMock(returncode=0,
                       stdout='Mounted /dev/loop0 at /media/user/NO NAME.\n'),
         ]
@@ -30,9 +34,14 @@ class TestUdisksMount(unittest.TestCase):
     @patch('mount_image_udisks.subprocess.run')
     def test_mount_image_mount_fails_cleans_up(self, mock_run):
         mock_run.side_effect = [
+            # loop_setup
             MagicMock(returncode=0,
                       stdout='Mapped file img as /dev/loop0.\n'),
+            # blkid — empty, no auto-mount
+            MagicMock(returncode=0, stdout=''),
+            # _mount fails
             MagicMock(returncode=1, stdout='', stderr='mount error'),
+            # _loop_delete cleanup
             MagicMock(returncode=0),
         ]
         from mount_image_udisks import mount_image
@@ -52,9 +61,14 @@ class TestUdisksMount(unittest.TestCase):
     @patch('mount_image_udisks.subprocess.run')
     def test_mount_image_unparsable_mount_point(self, mock_run):
         mock_run.side_effect = [
+            # loop_setup
             MagicMock(returncode=0,
                       stdout='Mapped file img as /dev/loop0.\n'),
+            # blkid — empty, no auto-mount
+            MagicMock(returncode=0, stdout=''),
+            # _mount — success but unparsable
             MagicMock(returncode=0, stdout='no mount here\n', stderr=''),
+            # _loop_delete cleanup
             MagicMock(returncode=0),
         ]
         from mount_image_udisks import mount_image
