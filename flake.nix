@@ -4,19 +4,21 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    unmount-image.url = "github:MBanucu/unmount-image";
   };
 
   outputs =
     { self
     , nixpkgs
     , flake-utils
+    , unmount-image
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ self.overlays.default ];
+          overlays = [ unmount-image.overlays.default self.overlays.default ];
         };
       in
       {

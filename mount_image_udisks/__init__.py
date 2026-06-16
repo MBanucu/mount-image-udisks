@@ -12,13 +12,15 @@ Key advantages over the sudo strategy:
 
 from mount_image_udisks._api import (
     attach_image,
+    mount_image,
+)
+from unmount_image import (
     detach_image,
     detach_inner,
-    mount_image,
     umount_image,
     umount_inner,
 )
-from mount_image_udisks._strategy import (
+from unmount_image import (
     StepFn,
     UNMOUNT_FAIL_FAST,
     UNMOUNT_FORCE,
@@ -32,3 +34,4 @@ from mount_image_udisks._strategy import (
     compose,
     retry,
 )
+from unmount_image._monitor import join_pending_detaches
