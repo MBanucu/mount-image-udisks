@@ -100,6 +100,8 @@ class TestUdisksMultiFs(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        from unmount_image._monitor import join_pending_detaches
+        join_pending_detaches(timeout=60)
         for path in cls._images.values():
             try:
                 os.unlink(path)

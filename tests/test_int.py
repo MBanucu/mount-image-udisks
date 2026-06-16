@@ -67,6 +67,8 @@ class TestUdisksIntegration(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        from unmount_image._monitor import join_pending_detaches
+        join_pending_detaches(timeout=60)
         try:
             os.unlink(cls._img)
         except OSError:

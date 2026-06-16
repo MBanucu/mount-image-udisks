@@ -2,6 +2,7 @@
   lib
 , buildPythonPackage
 , setuptools
+, unmount-image
 , src
 }:
 buildPythonPackage rec {
@@ -12,7 +13,7 @@ buildPythonPackage rec {
   inherit src;
 
   nativeBuildInputs = [ setuptools ];
-  propagatedBuildInputs = [ ];
+  propagatedBuildInputs = [ unmount-image ];
 
   doCheck = false;
   pythonImportsCheck = [ "mount_image_udisks" ];
